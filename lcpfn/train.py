@@ -4,19 +4,18 @@ from contextlib import nullcontext
 
 import torch
 from torch import nn
+from torch.cuda.amp import GradScaler, autocast
 
-from lcpfn import utils
-from lcpfn.transformer import TransformerModel
+from lcpfn import positional_encodings, utils
 from lcpfn.bar_distribution import (
     BarDistribution,
 )
+from lcpfn.transformer import TransformerModel
 from lcpfn.utils import (
     get_cosine_schedule_with_warmup,
     get_openai_lr,
+    init_dist,
 )
-from lcpfn import positional_encodings
-from lcpfn.utils import init_dist
-from torch.cuda.amp import autocast, GradScaler
 
 
 class Losses:
@@ -67,10 +66,15 @@ def train(
     checkpoint_file=None,
     load_optimizer_from_this_state_dict=None,
     output_path=None,
+    logger=None,
     **model_extra_args,
 ):
     device = gpu_device if torch.cuda.is_available() else "cpu:0"
-    print(f"Using {device} device")
+    (
+        print(f"Using {device} device")
+        if not logger
+        else logger.info(f"Using {device} device")
+    )
     using_dist, rank, device = init_dist(device)
     single_eval_pos_gen = (
         single_eval_pos_gen
@@ -98,7 +102,11 @@ def train(
     style_def = next(iter(dl))[0][
         0
     ]  # This is (style, x, y), target with x and y with batch size
-    print(f"Style definition: {style_def}")
+    (
+        print(f"Style definition: {style_def}")
+        if not logger
+        else logger.info(f"Style definition: {style_def}")
+    )
     style_encoder = (
         style_encoder_generator(hyperparameter_definitions=style_def[0], em_size=emsize)
         if (style_def is not None)
@@ -139,21 +147,35 @@ def train(
     if initialize_with_model is not None:
         model.init_from_small_model(initialize_with_model)
 
-    print(
-        f"Using a Transformer with {sum(p.numel() for p in model.parameters())/1000/1000:.{2}f} M parameters"
+    (
+        print(
+            f"Using a Transformer with {sum(p.numel() for p in model.parameters())/1000/1000:.{2}f} M parameters"
+        )
+        if not logger
+        else logger.info(
+            f"Using a Transformer with {sum(p.numel() for p in model.parameters())/1000/1000:.{2}f} M parameters"
+        )
     )
 
     try:
         for (k, v), (k2, v2) in zip(
             model.state_dict().items(), initialize_with_model.state_dict().items()
         ):
-            print(k, ((v - v2) / v).abs().mean(), v.shape)
+            (
+                print(k, ((v - v2) / v).abs().mean(), v.shape)
+                if not logger
+                else logger.info(k, ((v - v2) / v).abs().mean(), v.shape)
+            )
     except Exception:
         pass
 
     model.to(device)
     if using_dist:
-        print("Distributed training")
+        (
+            print("Distributed training")
+            if not logger
+            else logger.info("Distributed training")
+        )
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[rank], output_device=rank, broadcast_buffers=False
         )
@@ -161,7 +183,11 @@ def train(
     # learning rate
     if lr is None:
         lr = get_openai_lr(model)
-        print(f"Using OpenAI max lr of {lr}.")
+        (
+            print(f"Using OpenAI max lr of {lr}.")
+            if not logger
+            else logger.info(f"Using OpenAI max lr of {lr}.")
+        )
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = scheduler(
         optimizer, warmup_epochs, epochs if epochs is not None else 100
@@ -197,9 +223,13 @@ def train(
                 with autocast(enabled=scaler is not None):
                     # If style is set to None, it should not be transferred to device
                     output = model(
-                        tuple(e.to(device) if torch.is_tensor(e) else e for e in data)
-                        if isinstance(data, tuple)
-                        else data.to(device),
+                        (
+                            tuple(
+                                e.to(device) if torch.is_tensor(e) else e for e in data
+                            )
+                            if isinstance(data, tuple)
+                            else data.to(device)
+                        ),
                         single_eval_pos=single_eval_pos,
                     )
 
@@ -248,7 +278,11 @@ def train(
                         else:
                             optimizer.step()
                     except:
-                        print("Invalid optimization step encountered")
+                        (
+                            print("Invalid optimization step encountered")
+                            if not logger
+                            else logger.info("Invalid optimization step encountered")
+                        )
                     optimizer.zero_grad()
 
                 step_time = time.time() - before_forward
@@ -309,15 +343,25 @@ def train(
                 torch.save(model, full_model_path)
 
             if verbose:
-                print("-" * 89)
-                print(
-                    f"| end of epoch {epoch:3d} | time: {(time.time() - epoch_start_time):5.2f}s | mean loss {total_loss:5.2f} | "
-                    f"pos losses {','.join([f'{l:5.2f}' for l in total_positional_losses])}, lr {scheduler.get_last_lr()[0]}"
-                    f" data time {time_to_get_batch:5.2f} step time {step_time:5.2f}"
-                    f" forward time {forward_time:5.2f}"
-                    + (f"val score {val_score}" if val_score is not None else "")
+                print("-" * 89) if not logger else logger.info("-" * 89)
+                (
+                    print(
+                        f"| end of epoch {epoch:3d} | time: {(time.time() - epoch_start_time):5.2f}s | mean loss {total_loss:5.2f} | "
+                        f"pos losses {','.join([f'{l:5.2f}' for l in total_positional_losses])}, lr {scheduler.get_last_lr()[0]}"
+                        f" data time {time_to_get_batch:5.2f} step time {step_time:5.2f}"
+                        f" forward time {forward_time:5.2f}"
+                        + (f"val score {val_score}" if val_score is not None else "")
+                    )
+                    if not logger
+                    else logger.info(
+                        f"| end of epoch {epoch:3d} | time: {(time.time() - epoch_start_time):5.2f}s | mean loss {total_loss:5.2f} | "
+                        f"pos losses {','.join([f'{l:5.2f}' for l in total_positional_losses])}, lr {scheduler.get_last_lr()[0]}"
+                        f" data time {time_to_get_batch:5.2f} step time {step_time:5.2f}"
+                        f" forward time {forward_time:5.2f}"
+                        + (f"val score {val_score}" if val_score is not None else "")
+                    )
                 )
-                print("-" * 89)
+                print("-" * 89) if not logger else logger.info("-" * 89)
 
             # stepping with wallclock time based scheduler
             if epoch_callback is not None and rank == 0:
@@ -332,5 +376,9 @@ def train(
             dl = None
         if output_path is not None:
             torch.save(model.to("cpu"), output_path)
-            print("Checkpoint stored at ", output_path)
+            (
+                print("Checkpoint stored at ", output_path)
+                if not logger
+                else logger.info("Checkpoint stored at ", output_path)
+            )
         return total_loss, total_positional_losses, model.to("cpu"), dl

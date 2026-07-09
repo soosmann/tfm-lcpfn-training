@@ -1,10 +1,9 @@
+import logging
 import math
 
 from torch import nn
 
-from lcpfn import bar_distribution, encoders, train
-from lcpfn import utils
-
+from lcpfn import bar_distribution, encoders, train, utils
 from lcpfn.priors import utils as putils
 
 
@@ -17,6 +16,9 @@ def train_lcpfn(
     lr: float = 0.0001,
     batch_size: int = 100,
     epochs: int = 1000,
+    style_encoder_generator: encoders.StyleEncoder = None,
+    logger: logging.Logger = None,
+    epoch_callback=None,
 ):
     """
     Train a LCPFN model using the specified hyperparameters.
@@ -30,6 +32,8 @@ def train_lcpfn(
         lr (float, optional): The learning rate for the optimizer. Defaults to 0.0001.
         batch_size (int, optional): The batch size for training. Defaults to 100.
         epochs (int, optional): The number of epochs to train for. Defaults to 1000.
+        style_encoder_generator (encoders.StyleEncoder, optional): An encoder for style values.
+        logger (logging.Logger): A logger for logging.
 
     Returns:
         torch.module: The trained model.
@@ -91,6 +95,9 @@ def train_lcpfn(
         nhid=(emsize * 2),
         steps_per_epoch=100,
         train_mixed_precision=False,
+        style_encoder_generator=style_encoder_generator,
+        logger=logger,
+        epoch_callback=epoch_callback,
     )
 
     return train.train(**config)

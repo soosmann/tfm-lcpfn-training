@@ -1,3 +1,9 @@
+##### ADDED BY MARCEL #####
+
+.vscode
+results/
+
+##### AVAILABLE EARLIER #####
 # Byte-compiled / optimized / DLL files
 lcpfn/trained_models/
 __pycache__/

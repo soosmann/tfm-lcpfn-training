@@ -1,3 +1,19 @@
+# My Changes
+
+Added a directory `tfm/` that contains the implementation of a training script making it able to train an LC-PFN model including style metadata (allows usage of scaling law and training metadata).
+Contains minor adaptions of the `lcpfn` implementation, so do not install it as a package but only install dependencies to work with the repo version:
+
+```bash
+pip install -r requirements.txt
+```
+
+Execute the training script using:
+
+```python
+python -m tfm.train
+```
+
+Keep in mind that for training, at least learning curve data must be available.
 
 # Efficient Bayesian Learning Curve Extrapolation using Prior-Data Fitted Networks
 
